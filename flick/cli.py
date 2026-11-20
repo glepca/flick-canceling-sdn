@@ -146,6 +146,10 @@ def main():
                      help="Exporta esse intervalo e usa os demais quadros como contexto.")
     run.add_argument("--trava-fluxo", type=float, metavar="PX",
                      help="Limite opcional de velocidade em pixels da entrada por quadro.")
+    run.add_argument("--trava-textura", type=float, metavar="CORRELACAO",
+                     help="Com --trava-fluxo, exige textura compatível nos dois vizinhos.")
+    run.add_argument("--teto-delta", type=float, metavar="VALOR",
+                     help="Com --trava-fluxo, limita a maior mudança de canal antes de quantizar.")
     run.add_argument("--receita", help="JSON com parâmetros e máscaras da camada 4.")
     run.add_argument("--param", action="append", default=[], help="Substituição grupo.chave=valor JSON, repetível.")
     run.add_argument("--mascara-track", action="append", default=[], help="Objeto JSON com arquivo, quadro e janela opcional.")

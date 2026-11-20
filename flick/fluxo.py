@@ -83,7 +83,7 @@ def projetar(delta, tamanho, faixa, destino):
 
 
 def exportar(camadas, saida, tamanho, faixa, destino, primeiro, precisao, indices,
-             limite_fluxo=None, entrada=None, regiao=None):
+             limite_fluxo=None, entrada=None, regiao=None, limiar_textura=None, teto=None):
     volumes = [np.load(p, mmap_mode="r") for p in camadas]
     if limite_fluxo is not None:
         entrada = np.load(entrada, mmap_mode="r")
@@ -99,7 +99,7 @@ def exportar(camadas, saida, tamanho, faixa, destino, primeiro, precisao, indice
         if limite_fluxo is not None:
             for vol in volumes:
                 soma += vol[i]
-            ganho, registro[q] = trava(entrada, regiao, i, soma, limite_fluxo)
+            ganho, registro[q] = trava(entrada, regiao, i, soma, limite_fluxo, limiar_textura, teto)
             soma_final = np.zeros((*destino[::-1], 3), np.float32)
         for vol, pasta in zip(volumes, pastas):
             d = vol[i].astype(np.float32)
@@ -122,7 +122,8 @@ def exportar(camadas, saida, tamanho, faixa, destino, primeiro, precisao, indice
         if ordem % 20 == 0:
             print(f"Exportados {ordem}/{len(indices)} quadros", flush=True)
     if limite_fluxo is not None:
-        gravar_json(saida/"trava_fluxo.json", {"limite_px_por_quadro": limite_fluxo, "quadros": registro})
+        gravar_json(saida/"trava_fluxo.json", {"limite_px_por_quadro": limite_fluxo,
+                    "limiar_textura":limiar_textura, "teto_delta":teto, "quadros": registro})
 
 
 def rodar(a, receita):
@@ -135,6 +136,10 @@ def rodar(a, receita):
         raise ValueError("O intervalo de entrega precisa estar contido na sequência.")
     if a.trava_fluxo is not None and (not np.isfinite(a.trava_fluxo) or a.trava_fluxo <= 0):
         raise ValueError("O limite da trava de fluxo precisa ser finito e positivo.")
+    if a.trava_textura is not None and (a.trava_fluxo is None or not 0 <= a.trava_textura < 1):
+        raise ValueError("A trava de textura requer fluxo e correlação no intervalo [0,1).")
+    if a.teto_delta is not None and (a.trava_fluxo is None or not 0 < a.teto_delta <= 1):
+        raise ValueError("O teto do delta requer a trava de fluxo e amplitude entre zero e um.")
     indices = range(inicio_entrega - a.inicio, fim_entrega - a.inicio + 1)
     pasta = Path(a.saida)
     pasta.mkdir(parents=True, exist_ok=False)
@@ -174,7 +179,7 @@ def rodar(a, receita):
     inicio = time.monotonic()
     destino = tuple(a.tamanho_saida or tamanho)
     exportar(camadas, pasta, tamanho, faixa, destino, a.inicio, a.precisao, indices,
-             a.trava_fluxo, entrada, mask)
+             a.trava_fluxo, entrada, mask, a.trava_textura, a.teto_delta)
     tempos["exportacao"] = time.monotonic()-inicio
     if not a.medir_separado:
         inicio = time.monotonic()
@@ -204,6 +209,7 @@ def rodar(a, receita):
                                      "tela":tamanho, "faixa":faixa, "tamanho_saida":destino,
                                      "primeiro":a.inicio, "ultimo":a.fim, "precisao":a.precisao,
                                      "entrega":[inicio_entrega, fim_entrega], "trava_fluxo":a.trava_fluxo,
+                                     "trava_textura":a.trava_textura, "teto_delta":a.teto_delta,
                                      "numpy":np.__version__, "opencv":cv2.__version__,
                                      "openexr":OpenEXR.__version__})
     gravar_resumo(pasta, rel, custo)

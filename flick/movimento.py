@@ -14,7 +14,24 @@ def _cinza_fluxo(imagem, tamanho):
     return np.rint(np.clip(0.35 + 0.25 * cinza + 2 * local, 0, 1) * 255).astype(np.uint8)
 
 
-def trava(entrada, regiao, i, delta, limite):
+def _peso_textura(atual, vizinho, limiar):
+    """Correlação de luminância em 15 × 15 pixels, invariante a ganho e nível."""
+    a = cv2.cvtColor(atual, cv2.COLOR_BGR2GRAY)
+    b = cv2.cvtColor(vizinho, cv2.COLOR_BGR2GRAY)
+    def media(canal):
+        return cv2.blur(canal, (15, 15))
+    ma, mb = media(a), media(b)
+    va = np.maximum(media(a * a) - ma * ma, 0)
+    vb = np.maximum(media(b * b) - mb * mb, 0)
+    cov = media(a * b) - ma * mb
+    rho = cov / np.sqrt(np.maximum(va * vb, 1e-12))
+    # Sem contraste suficiente, a movimentação de uma faceta fica indeterminada.
+    contraste = np.minimum(va, vb)
+    return (np.clip((rho - limiar) / (1 - limiar), 0, 1) *
+            np.clip((contraste - .003**2) / (.008**2 - .003**2), 0, 1))
+
+
+def trava(entrada, regiao, i, delta, limite, limiar_textura=None, teto=None):
     """Cada canal só pode corrigir um extremo confirmado pelos dois vizinhos.
 
     As correspondências precisam voltar ao ponto de partida e permanecer dentro
@@ -38,6 +55,7 @@ def trava(entrada, regiao, i, delta, limite):
     ganho = np.ones_like(delta)
     velocidade = np.zeros(tamanho[::-1], np.float32)
     confiavel = permitida.copy()
+    textura = np.ones((h, w), np.float32)
     for j in (i - 1, i + 1):
         vizinho = normalizar(entrada[j])
         peq = _cinza_fluxo(vizinho, tamanho)
@@ -56,6 +74,8 @@ def trava(entrada, regiao, i, delta, limite):
             confiavel &= suporte > 0.999
         registrado = cv2.remap(vizinho, mapa_x, mapa_y, cv2.INTER_LINEAR,
                                borderMode=cv2.BORDER_REPLICATE)
+        if limiar_textura is not None:
+            np.minimum(textura, _peso_textura(atual, registrado, limiar_textura), out=textura)
         diferenca = cv2.GaussianBlur(registrado - atual, (0, 0), 1.5)
         # O sinal do quociente corta movimento monotônico; seu módulo limita
         # a soma ao menor desvio entre o centro e os dois vizinhos alinhados.
@@ -64,7 +84,14 @@ def trava(entrada, regiao, i, delta, limite):
         np.minimum(ganho, np.maximum(razao, 0), out=ganho)
     velocidade = cv2.resize(velocidade, (w, h))
     rampa = np.clip(2 * (1 - velocidade / limite), 0, 1)
-    ganho *= (confiavel * rampa)[..., None]
+    ganho *= (confiavel * rampa * textura)[..., None]
+    if limiar_textura is not None:
+        info["pixels_vetados_textura"] = int((permitida & (textura == 0)).sum())
+    if teto is not None:
+        amplitude = np.max(np.abs(delta * ganho), axis=2)
+        inicio = teto / 2
+        comprimida = inicio * (1 + np.tanh(np.maximum(0, amplitude - inicio) / inicio))
+        ganho *= np.minimum(1, comprimida / np.maximum(amplitude, 1e-12))[..., None]
     info.update(pixels_velozes=int((permitida & (velocidade >= limite)).sum()),
                 pixels_inseguros=int((permitida & ~confiavel).sum()),
                 pixels_com_ganho=int(np.any(ganho > 0, axis=2).sum()))

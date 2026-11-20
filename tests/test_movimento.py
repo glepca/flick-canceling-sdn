@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -14,6 +15,27 @@ from flick.imagens import ler_cor
 
 
 class Movimento(unittest.TestCase):
+    def test_correspondencia_aparente_entre_texturas_diferentes(self):
+        # Um fluxo que vai e volta perfeitamente ainda pode ligar facetas distintas.
+        rng = np.random.default_rng(42)
+        p = rng.uniform(.2, .4, (80, 128)).astype(np.float32)
+        a = np.repeat(p[..., None], 3, axis=2)
+        b = a + .12
+        b[:, 64:] = np.repeat((.72 - p[:, 64:])[..., None], 3, axis=2)
+        pedido = np.full_like(a, -.12)
+
+        class FluxoNulo:
+            def calc(self, origem, destino, inicial):
+                return np.zeros((*origem.shape, 2), np.float32)
+
+        with patch("flick.movimento.cv2.DISOpticalFlow_create", return_value=FluxoNulo()):
+            seq = [a, b, a]
+            ganho, _ = trava(seq, None, 1, pedido, 4., .70, .04)
+        d = np.abs(ganho * pedido)
+        self.assertEqual(d[12:-12, 80:-12].max(), 0)
+        self.assertAlmostEqual(float(d[12:-12, 12:50].mean()), .04, places=5)
+        self.assertLessEqual(d.max(), .040001)
+
     def test_entrega_recortada_com_soma_e_mascara(self):
         with tempfile.TemporaryDirectory() as temporario:
             pasta = Path(temporario)
@@ -66,6 +88,9 @@ class Movimento(unittest.TestCase):
         self.assertEqual(ganho[56:71, 47:64].max(), 0)
         self.assertLess(ganho[(raio > 43) & (raio < 59)].mean(), .015)
         self.assertGreater(info["pixels_velozes"], 3000)
+        ganho, _ = trava(quadros, regiao, 1, pedido, 4., .70, .04)
+        self.assertLess(ganho[(raio > 43) & (raio < 59)].mean(), .015)
+        self.assertGreater(ganho[92:136, 24:60].mean(), .32)
 
         # Conservar uma variação monotônica, mesmo com grande delta candidato.
         base = quadros[0]
