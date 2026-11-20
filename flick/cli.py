@@ -142,6 +142,10 @@ def main():
     run.add_argument("--faixa", type=int, nargs=4, metavar=("X","Y","L","A"))
     run.add_argument("--tela", type=int, nargs=2, metavar=("L","A"), help="Tela inteira de um NPY recortado.")
     run.add_argument("--tamanho-saida", type=int, nargs=2, metavar=("L","A"))
+    run.add_argument("--entregar", type=int, nargs=2, metavar=("INICIO","FIM"),
+                     help="Exporta esse intervalo e usa os demais quadros como contexto.")
+    run.add_argument("--trava-fluxo", type=float, metavar="PX",
+                     help="Limite opcional de velocidade em pixels da entrada por quadro.")
     run.add_argument("--receita", help="JSON com parâmetros e máscaras da camada 4.")
     run.add_argument("--param", action="append", default=[], help="Substituição grupo.chave=valor JSON, repetível.")
     run.add_argument("--mascara-track", action="append", default=[], help="Objeto JSON com arquivo, quadro e janela opcional.")

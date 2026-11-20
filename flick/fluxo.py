@@ -12,6 +12,7 @@ from . import blocos, track
 from .imagens import (Sequencia, gravar_exr, leitor_mascara, ler_cor, nome, normalizar,
                       preparar_mascaras, recorte_nativo)
 from .medidas import medir, salvar_relatorios
+from .movimento import trava
 from .recursos import Recursos
 
 
@@ -81,26 +82,47 @@ def projetar(delta, tamanho, faixa, destino):
     return cv2.resize(tela, destino, interpolation=cv2.INTER_AREA)
 
 
-def exportar(camadas, saida, tamanho, faixa, destino, primeiro, precisao):
+def exportar(camadas, saida, tamanho, faixa, destino, primeiro, precisao, indices,
+             limite_fluxo=None, entrada=None, regiao=None):
     volumes = [np.load(p, mmap_mode="r") for p in camadas]
+    if limite_fluxo is not None:
+        entrada = np.load(entrada, mmap_mode="r")
+        regiao = np.load(regiao, mmap_mode="r") if regiao else None
+    registro = {}
     pastas = [saida/f"camada{i+1}" for i in range(len(volumes))] + [saida/"soma", saida/"acao"]
     for pasta in pastas:
         pasta.mkdir()
-    for i in range(len(volumes[0])):
+    for ordem, i in enumerate(indices, 1):
         q = primeiro+i
         soma = np.zeros(volumes[0].shape[1:], np.float32)
         acao = np.zeros((destino[1], destino[0]), bool)
+        if limite_fluxo is not None:
+            for vol in volumes:
+                soma += vol[i]
+            ganho, registro[q] = trava(entrada, regiao, i, soma, limite_fluxo)
+            soma_final = np.zeros((*destino[::-1], 3), np.float32)
         for vol, pasta in zip(volumes, pastas):
             d = vol[i].astype(np.float32)
-            soma += d
+            if limite_fluxo is None:
+                soma += d
+            else:
+                d *= ganho
             tela = projetar(d, tamanho, faixa, destino)
+            if limite_fluxo is not None:
+                if precisao == "half":
+                    tela = tela.astype(np.float16)
+                soma_final += tela
             gravar_exr(pasta/f"delta_{q:04d}.exr", tela, precisao)
             acao |= np.any(tela != 0, axis=2)
-        gravar_exr(pastas[-2]/f"delta_{q:04d}.exr", projetar(soma, tamanho, faixa, destino), precisao)
+        if limite_fluxo is None:
+            soma_final = projetar(soma, tamanho, faixa, destino)
+        gravar_exr(pastas[-2]/f"delta_{q:04d}.exr", soma_final, precisao)
         if not cv2.imwrite(str(pastas[-1]/f"acao_{q:04d}.png"), acao.astype(np.uint8)*255):
             raise OSError("Erro ao gravar a máscara de ação.")
-        if (i+1) % 20 == 0:
-            print(f"Exportados {i+1}/{len(volumes[0])} quadros", flush=True)
+        if ordem % 20 == 0:
+            print(f"Exportados {ordem}/{len(indices)} quadros", flush=True)
+    if limite_fluxo is not None:
+        gravar_json(saida/"trava_fluxo.json", {"limite_px_por_quadro": limite_fluxo, "quadros": registro})
 
 
 def rodar(a, receita):
@@ -108,6 +130,12 @@ def rodar(a, receita):
     recursos = Recursos()
     seq, regiao = leitores(a)
     tamanho, faixa = geometria(seq, a)
+    inicio_entrega, fim_entrega = a.entregar or (a.inicio, a.fim)
+    if not a.inicio <= inicio_entrega <= fim_entrega <= a.fim:
+        raise ValueError("O intervalo de entrega precisa estar contido na sequência.")
+    if a.trava_fluxo is not None and (not np.isfinite(a.trava_fluxo) or a.trava_fluxo <= 0):
+        raise ValueError("O limite da trava de fluxo precisa ser finito e positivo.")
+    indices = range(inicio_entrega - a.inicio, fim_entrega - a.inicio + 1)
     pasta = Path(a.saida)
     pasta.mkdir(parents=True, exist_ok=False)
     cache = pasta/"cache"
@@ -145,7 +173,8 @@ def rodar(a, receita):
     tempos["camada4"] = time.monotonic()-inicio
     inicio = time.monotonic()
     destino = tuple(a.tamanho_saida or tamanho)
-    exportar(camadas, pasta, tamanho, faixa, destino, a.inicio, a.precisao)
+    exportar(camadas, pasta, tamanho, faixa, destino, a.inicio, a.precisao, indices,
+             a.trava_fluxo, entrada, mask)
     tempos["exportacao"] = time.monotonic()-inicio
     if not a.medir_separado:
         inicio = time.monotonic()
@@ -155,6 +184,8 @@ def rodar(a, receita):
                 return cv2.resize(f, destino, interpolation=cv2.INTER_AREA)
             return projetar(f, tamanho, faixa, destino)
         def corrigida(i):
+            if i not in indices:
+                return original(i)
             d = ler_cor(pasta/"soma"/f"delta_{a.inicio+i:04d}.exr")
             return np.clip(original(i)+d, 0, 1)
         def peso(i):
@@ -163,7 +194,8 @@ def rodar(a, receita):
             for exc in exclusoes:
                 w[cv2.resize(exc(i), destino, interpolation=cv2.INTER_NEAREST)>0] = 0
             return w
-        med = medir(original, {"soma":corrigida}, peso, {"sequência": range(2,seq.quantidade-2)},
+        centros = [i for i in indices if 2 <= i < seq.quantidade - 2]
+        med = medir(original, {"soma":corrigida}, peso, {"sequência": centros},
                     seq.quantidade)
         salvar_relatorios(med, pasta)
         tempos["medidas"] = time.monotonic()-inicio
@@ -171,6 +203,7 @@ def rodar(a, receita):
     gravar_json(pasta/"execucao.json", {"recursos":custo, "segundos_por_etapa":tempos,
                                      "tela":tamanho, "faixa":faixa, "tamanho_saida":destino,
                                      "primeiro":a.inicio, "ultimo":a.fim, "precisao":a.precisao,
+                                     "entrega":[inicio_entrega, fim_entrega], "trava_fluxo":a.trava_fluxo,
                                      "numpy":np.__version__, "opencv":cv2.__version__,
                                      "openexr":OpenEXR.__version__})
     gravar_resumo(pasta, rel, custo)
