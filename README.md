@@ -1,45 +1,58 @@
-# Flick Canceling
+# Flick Canceling SDÑ
 
-Ferramenta de estúdio para reduzir manchas de luz e cor que aparecem e desaparecem em um plano. Entrega quatro deltas RGB com sinal, a soma e uma máscara PNG dos pixels em que alguma camada atuou. A intensidade pode ser decidida na composição.
+> Gambiarra is part of creativity, too.
+> *(Gambiarra: Brazilian for a clever, improvised fix that shouldn't work, but does.)*
 
-## Instalação e uso
+**English** · [Português](README.pt-BR.md)
 
-Use Python 3.14 em um ambiente virtual. Numere os quadros sem lacunas, com a mesma resolução e curva de cor em todo o plano. A receita foi desenhada para RGB em escala de 0 a 1. PNG e TIFF aceitam 8 ou 16 bits. EXR usa os canais principais R, G e B. A ferramenta trabalha nos valores recebidos, sem transformação de cor.
+Made by [Smart Diseños (SDÑ)](https://smartdisenos.com), a *Non-Traditional Creative Studio*, in the middle of a real 3D film, when the water and ice in the render started to flicker and there was no time to render again. We're sharing it for anyone stuck in the same spot.
+
+Think of it like noise canceling, but for flicker. It is a studio tool that reduces light and color blotches that pop in and out of a shot. It outputs four signed RGB deltas, their sum, and a PNG mask of the pixels any layer touched. How much of it you use is decided in comp.
+
+## Install and use
+
+Use Python 3.14 in a virtual environment. Number your frames with no gaps, keeping the same resolution and color curve across the shot. The recipe was designed for RGB on a 0 to 1 scale. PNG and TIFF accept 8 or 16 bits. EXR uses the main R, G and B channels. The tool works on the values it receives, with no color transform.
 
 ```sh
 python3.14 -m venv .venv
 .venv/bin/python -m pip install -e .
-.venv/bin/flick run --entrada 'quadros/luz_%04d.png' --inicio 1 --fim 48 \
-  --regiao 'mascaras/objeto_%04d.png' --excluir mascaras/proteger.png \
-  --receita flick/receita.json --processos 4 --saida saida/plano01
-.venv/bin/flick apply --entrada 'quadros/luz_%04d.png' --inicio 1 --fim 48 \
-  --delta 'saida/plano01/soma/delta_%04d.exr' --forca 0.7 --saida saida/previa01
-.venv/bin/flick measure --entrada 'quadros/luz_%04d.png' --inicio 1 --fim 48 \
-  --corrigida 'saida/previa01/quadro_%04d.png' --regiao 'mascaras/objeto_%04d.png' \
-  --trecho 'meio=10,38,2' --saida saida/medida01
+.venv/bin/flick run --entrada 'frames/light_%04d.png' --inicio 1 --fim 48 \
+  --regiao 'masks/object_%04d.png' --excluir masks/protect.png \
+  --receita flick/receita.json --processos 4 --saida out/shot01
+.venv/bin/flick apply --entrada 'frames/light_%04d.png' --inicio 1 --fim 48 \
+  --delta 'out/shot01/soma/delta_%04d.exr' --forca 0.7 --saida out/preview01
+.venv/bin/flick measure --entrada 'frames/light_%04d.png' --inicio 1 --fim 48 \
+  --corrigida 'out/preview01/quadro_%04d.png' --regiao 'masks/object_%04d.png' \
+  --trecho 'mid=10,38,2' --saida out/measure01
 .venv/bin/python -m unittest discover -s tests
 ```
 
-Cada comando de entrega pede uma pasta inédita. O resultado da prévia é `clip(original + força × delta, 0, 1)`. Força zero com o mesmo formato copia o original. O EXR de delta tem sinal e usa half de 16 bits por padrão. Use `--precisao float32` para gravar a soma e a redução espacial com maior precisão. O processamento usa float32 e mantém os arredondamentos em half nas gravações intermediárias da receita de referência.
+The flags are in Portuguese, because that's how the studio thinks: `entrada` input, `inicio`/`fim` first/last frame, `regiao` region, `excluir` exclude, `receita` recipe, `processos` processes, `saida` output, `forca` strength, `corrigida` corrected, `trecho` range.
 
-## Receita e máscaras
+Each delivery command asks for a brand-new folder. The preview is `clip(original + strength × delta, 0, 1)`. Strength zero with the same format copies the original. The delta EXR is signed and uses 16-bit half by default. Use `--precisao float32` to write the sum and the spatial reduction with more precision. Processing runs in float32 and keeps the half rounding of the reference recipe's intermediate writes.
 
-As duas primeiras camadas estabilizam quadradinhos por registro afim ECC, escolhem pela luminância uma referência de aparência com memória e protegem movimento consistente. A segunda desloca a grade sobre o resultado da primeira. A terceira detecta alternância em relação à média dos dois vizinhos. A quarta acompanha máscaras manuais e regiões automáticas, suavizando a trajetória de cor em cada região estabilizada.
+## Recipe and masks
 
-- Os padrões estão em `flick/receita.json`. Um JSON parcial substitui só os campos fornecidos. Na CLI, por exemplo, `--param camada2.sigma_cor=4.0` ou `--param camada4.automatica=false`. Distâncias multiplicam pela largura da tela dividida por 3840, áreas pelo quadrado dessa razão. Os tamanhos de janela temporal são em quadros. A dilatação e a suavização da região usam a largura nativa da máscara dividida por 1920.
-- `--regiao` aceita PNG fixo ou por quadro, em tons de cinza. Branco permite a correção, preto a exclui. O envelope da região pode avançar sobre a borda segundo a receita. `--excluir` protege cada pixel marcado, inclusive na camada manual. A máscara manual tem envelope próprio.
-- Para Cryptomatte, use `--cryptomatte 'passes/matte_%04d.exr' --camada-crypto CryptoObject --id-crypto Vidro`. Repita a flag para somar coberturas. Aceita nomes do manifesto incorporado ou o ID hexadecimal de oito dígitos. A região usa a soma dos pesos de cada par ID/cobertura.
-- Para acompanhar um objeto, use `--mascara-track '{"arquivo":"mascara.png","quadro":24}'`. Também aceita JSON com `{"pontos":[[x1,y1],[x2,y2],[x3,y3]]}` usando números. A chave opcional `janela` recebe `[x,y,largura,altura]` para delimitar o registro. Coordenadas partem do alto à esquerda da tela inteira. Caminhos em receitas são relativos ao JSON. A referência automática padrão é o meio da sequência.
-- `--faixa X Y L A` processa um recorte e escreve zero fora dele. `--tamanho-saida L A` define a resolução de entrega. O adaptador NPY aceita `[tempo,altura,largura,BGR]`, inteiros sem sinal ou floats normalizados. Para um NPY já recortado, declare `--tela L A` e a faixa. `--origem-npy` identifica o primeiro quadro armazenado ao extrair um intervalo.
-- `--entregar Q0 Q1` restringe o intervalo exportado. As camadas usam todos os quadros de `--inicio` a `--fim` como contexto.
-- `--trava-fluxo PX` acrescenta uma proteção para movimento forte na exportação. O fluxo óptico procura o mesmo ponto nos dois quadros vizinhos e verifica a volta ao quadro atual. O peso cai linearmente entre metade de PX e PX pixels de deslocamento por quadro, medidos na resolução da entrada. O pixel perde a correção ao sair da região em um dos vizinhos, ao falhar a volta ou ao atingir o limite de velocidade. Em cada canal, só permanece a parcela do delta que aproxima o centro dos dois vizinhos na mesma direção. Os extremos da sequência de contexto ficam com delta zero. `trava_fluxo.json` informa a cobertura por quadro. A receita original continua sendo o padrão.
-- `--trava-textura 0.70`, junto com a trava de fluxo, compara a luminância em janelas de 15 × 15 pixels nos dois vizinhos já alinhados. Uma correlação local até esse limiar veta a ação. Acima dele, o peso cresce linearmente até 1. O controle de contraste também atenua janelas cujo desvio padrão fica abaixo de 0,008 em valores de código normalizados.
-- `--teto-delta 0.04`, também opcional junto com a trava de fluxo, comprime gradualmente amplitudes acima de metade do teto. O maior deslocamento de canal se aproxima do teto e os três canais recebem o mesmo fator. A quantização de cada camada acontece depois dessa operação.
+The first two layers stabilize small tiles with ECC affine registration, pick an appearance reference by luminance with memory, and protect consistent motion. The second shifts the grid over the result of the first. The third detects alternation against the average of the two neighbors. The fourth follows manual masks and automatic regions, smoothing the color trajectory inside each stabilized region.
 
-## Medidas
+- Defaults live in `flick/receita.json`. A partial JSON replaces only the fields it provides. On the CLI, for example, `--param camada2.sigma_cor=4.0` or `--param camada4.automatica=false`. Distances scale by screen width divided by 3840, areas by the square of that ratio. Temporal window sizes are in frames. Region dilation and smoothing use the mask's native width divided by 1920.
+- `--regiao` takes a fixed or per-frame grayscale PNG. White allows the correction, black excludes it. The region envelope may grow past the edge as the recipe says. `--excluir` protects every marked pixel, manual layer included. The manual mask has its own envelope.
+- For Cryptomatte, use `--cryptomatte 'passes/matte_%04d.exr' --camada-crypto CryptoObject --id-crypto Glass`. Repeat the flag to add coverages. It takes names from the embedded manifest or the 8-digit hex ID. The region uses the sum of weights of each ID/coverage pair.
+- To follow an object, use `--mascara-track '{"arquivo":"mask.png","quadro":24}'`. It also takes JSON with `{"pontos":[[x1,y1],[x2,y2],[x3,y3]]}`. The optional `janela` key takes `[x,y,width,height]` to bound the registration. Coordinates start at the top left of the full screen. Paths inside recipes are relative to the JSON. The default automatic reference is the middle of the sequence.
+- `--faixa X Y W H` processes a crop and writes zero outside it. `--tamanho-saida W H` sets the delivery resolution. The NPY adapter takes `[time,height,width,BGR]`, unsigned integers or normalized floats. For an already-cropped NPY, declare `--tela W H` and the crop. `--origem-npy` names the first stored frame when extracting a range.
+- `--entregar Q0 Q1` limits the exported range. The layers use every frame from `--inicio` to `--fim` as context.
+- `--trava-fluxo PX` adds protection against strong motion on export. Optical flow looks for the same point in both neighbor frames and checks the way back to the current frame. Weight falls linearly between half of PX and PX pixels of motion per frame, measured at input resolution. A pixel loses the correction when it leaves the region in a neighbor, fails the round trip or hits the speed limit. In each channel, only the part of the delta that moves toward the center of both neighbors in the same direction remains. The ends of the context sequence get zero delta. `trava_fluxo.json` reports coverage per frame. The original recipe stays the default.
+- `--trava-textura 0.70`, together with the flow lock, compares luminance in 15 × 15 pixel windows in both aligned neighbors. A local correlation up to that threshold vetoes the action. Above it, weight grows linearly to 1. The contrast control also softens windows whose standard deviation stays below 0.008 in normalized code values.
+- `--teto-delta 0.04`, also optional with the flow lock, gradually compresses amplitudes above half the ceiling. The largest channel shift approaches the ceiling and the three channels get the same factor. Each layer is quantized after this step.
 
-`medidas.json` e `medidas.md` trazem as reduções de pulo total, pulo largo, vermelho e troca, a variação de detalhe e o maior aumento local de detalhe. Cada centro usa dois vizinhos anteriores e dois posteriores. O maior aumento local cobre o quadro inteiro. Os arquivos `registro1.json` a `registro4.json` guardam os diagnósticos de seleção e correlação do registro. `execucao.json` registra tempos e, no macOS, picos amostrados de memória da árvore de processos. Os caches mapeados em disco ficam na pasta da execução.
+## Measurements
 
-Antecedentes em correção localizada de flicker incluem Pitié et al. (2006) e o Furnace (2011), da Foundry. [Artigo no CVMP](https://doi.org/10.1049/cp:20061935) · [Manual do Furnace 4.2, p. 79](https://thefoundry.s3.amazonaws.com/products/furnace/nuke/documentation/Furnace_4.2_Nuke.pdf#page=79)
+`medidas.json` and `medidas.md` report the reductions in total jump, wide jump, red, swap, detail variation, and the largest local detail increase. Each center uses two previous and two following neighbors. The largest local increase covers the whole frame. `registro1.json` to `registro4.json` keep the registration's selection and correlation diagnostics. `execucao.json` logs times and, on macOS, sampled memory peaks of the process tree. Disk-mapped caches stay in the run folder.
 
-Licença Apache 2.0 em `LICENSE`.
+## Prior art
+
+We didn't invent localized flicker correction. Earlier work includes Pitié et al. (2006) and The Foundry's Furnace (2011). [CVMP paper](https://doi.org/10.1049/cp:20061935) · [Furnace 4.2 manual, p. 79](https://thefoundry.s3.amazonaws.com/products/furnace/nuke/documentation/Furnace_4.2_Nuke.pdf#page=79)
+
+## License
+
+Apache 2.0, see `LICENSE`. Hola from Brazil. 🇧🇷

@@ -5,7 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flick-canceling"
 version = "0.1.0"
-description = "Correção localizada de cintilação em sequências de imagens"
+description = "Localized flicker canceling for image sequences, by Smart Diseños (SDÑ)"
+readme = "README.md"
+authors = [{name = "Smart Diseños (SDÑ)"}]
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dynamic = ["dependencies"]
