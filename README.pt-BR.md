@@ -18,8 +18,10 @@ python3.14 -m venv .venv
 .venv/bin/flick run --entrada 'quadros/luz_%04d.png' --inicio 1 --fim 48 \
   --regiao 'mascaras/objeto_%04d.png' --excluir mascaras/proteger.png \
   --receita flick/receita.json --processos 4 --saida saida/plano01
+.venv/bin/flick decide --entrada 'quadros/luz_%04d.png' --inicio 1 --fim 48 \
+  --execucao saida/plano01 --saida saida/decisao01
 .venv/bin/flick apply --entrada 'quadros/luz_%04d.png' --inicio 1 --fim 48 \
-  --delta 'saida/plano01/soma/delta_%04d.exr' --forca 0.7 --saida saida/previa01
+  --delta 'saida/decisao01/escolha/delta_%04d.exr' --forca 1 --saida saida/previa01
 .venv/bin/flick measure --entrada 'quadros/luz_%04d.png' --inicio 1 --fim 48 \
   --corrigida 'saida/previa01/quadro_%04d.png' --regiao 'mascaras/objeto_%04d.png' \
   --trecho 'meio=10,38,2' --saida saida/medida01
@@ -27,6 +29,12 @@ python3.14 -m venv .venv
 ```
 
 Cada comando de entrega pede uma pasta inédita. O resultado da prévia é `clip(original + força × delta, 0, 1)`. Força zero com o mesmo formato copia o original. O EXR de delta tem sinal e usa half de 16 bits por padrão. Use `--precisao float32` para gravar a soma e a redução espacial com maior precisão. O processamento usa float32 e mantém os arredondamentos em half nas gravações intermediárias da receita de referência.
+
+## Deixe a ferramenta decidir
+
+Ninguém deveria julgar cada plano no olho. O `flick decide` revisa o próprio trabalho: aplica as camadas em ordem (1, 1+2, 1+2+3, as quatro) e mede tremor e detalhe só onde a ferramenta atuou. Uma combinação é vetada quando mantém menos de 90% do detalhe (`--detalhe-min`) ou quando mais de 1% dos quadradinhos de 64 pixels ganha detalhe demais, sinal de borda dobrada (`--fantasma-max`). Entre as que sobram, fica a menor combinação a até 2 pontos da melhor (`--ganho-min`): camada que quase não ajuda não entra. As camadas não são monotônicas (uma pode quase não agir e a seguinte agir muito), por isso todas são medidas antes da decisão. O delta escolhido vai para `escolha/` e o porquê, para `decisao.json`.
+
+Num render 3D com gelo piscando, ficaram as quatro camadas: 30% menos tremor, 93% do detalhe. Num timelapse em domínio público ([Growing grass, flicker not removed](https://commons.wikimedia.org/wiki/File:Growing_grass_(flicker_not_removed).ogv)), ficaram as camadas 1 a 3: 55% menos tremor sem perder detalhe, contra 28% de um deflicker simples de brilho global.
 
 ## Receita e máscaras
 

@@ -107,6 +107,22 @@ class TesteSintetico(unittest.TestCase):
                 esperado = np.rint(imagem * 65535).astype(np.uint16)
                 self.assertTrue(np.array_equal(obtido, esperado), f"Erro ao somar no quadro {i}.")
 
+            decisao = pasta / "decisao"
+            self.cli("decide", *quadros, "--execucao", saida, "--saida", decisao)
+            dec = json.loads((decisao / "decisao.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(dec["passos"]), 4)
+            usadas = dec["camadas_escolhidas"]
+            self.assertTrue(usadas, dec["conclusao"])
+            escolha = next(p for p in dec["passos"] if p["camadas"] == usadas)
+            self.assertTrue(escolha["aceitavel"])
+            self.assertGreater(escolha["reducao_tremor_%"], 0)
+            melhor = max(p["reducao_tremor_%"] for p in dec["passos"] if p["aceitavel"])
+            self.assertGreaterEqual(escolha["reducao_tremor_%"], melhor - dec["criterios"]["ganho_min_pontos"])
+            for q in range(1, len(limpa) + 1):
+                nome = f"delta_{q:04d}.exr"
+                esperado = sum(ler_exr(saida / f"camada{k}" / nome) for k in usadas)
+                self.assertTrue(np.allclose(ler_exr(decisao / "escolha" / nome), esperado, atol=1e-6))
+
             previa = pasta / "forca_zero"
             self.cli("apply", *quadros, "--delta", saida/"soma"/"delta_%04d.exr",
                      "--forca", 0, "--saida", previa, "--formato", "png")

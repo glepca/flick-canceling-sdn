@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from . import blocos, track
+from .decidir import decidir
 from .fluxo import gravar_json, leitores, rodar
 from .imagens import Sequencia, gravar_exr, ler_cor, nome, normalizar
 from .medidas import medir, salvar_relatorios
@@ -173,12 +174,23 @@ def main():
     apply.add_argument("--delta", required=True)
     apply.add_argument("--forca", type=float, default=1.)
     apply.add_argument("--formato", choices=("png","tif","tiff","exr"))
+    dec = sub.add_parser("decide", help="Revisa as camadas de um run e escolhe sozinho quantas aplicar.")
+    entrada(dec)
+    dec.add_argument("--execucao", required=True, help="Pasta do flick run com camada1 a camada4.")
+    dec.add_argument("--ganho-min", type=float, default=2.0,
+                     help="Pontos de tremor que uma camada a mais precisa tirar para entrar.")
+    dec.add_argument("--detalhe-min", type=float, default=90.0, help="Detalhe mínimo mantido, em %%.")
+    dec.add_argument("--fantasma-max", type=float, default=1.0,
+                     help="Máximo de quadradinhos com borda suspeita, em %%.")
+    dec.add_argument("--precisao", choices=("half","float32"), default="float32")
     a = cli.parse_args()
     try:
         if a.comando == "run":
             rodar(a, receita(a))
         elif a.comando == "measure":
             avaliar(a)
+        elif a.comando == "decide":
+            decidir(a)
         else:
             aplicar(a)
     except (OSError, ValueError, KeyError, cv2.error) as erro:

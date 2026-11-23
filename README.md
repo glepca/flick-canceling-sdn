@@ -19,15 +19,23 @@ python3.14 -m venv .venv
 .venv/bin/flick run --entrada 'frames/light_%04d.png' --inicio 1 --fim 48 \
   --regiao 'masks/object_%04d.png' --excluir masks/protect.png \
   --receita flick/receita.json --processos 4 --saida out/shot01
+.venv/bin/flick decide --entrada 'frames/light_%04d.png' --inicio 1 --fim 48 \
+  --execucao out/shot01 --saida out/decide01
 .venv/bin/flick apply --entrada 'frames/light_%04d.png' --inicio 1 --fim 48 \
-  --delta 'out/shot01/soma/delta_%04d.exr' --forca 0.7 --saida out/preview01
+  --delta 'out/decide01/escolha/delta_%04d.exr' --forca 1 --saida out/preview01
 .venv/bin/flick measure --entrada 'frames/light_%04d.png' --inicio 1 --fim 48 \
   --corrigida 'out/preview01/quadro_%04d.png' --regiao 'masks/object_%04d.png' \
   --trecho 'mid=10,38,2' --saida out/measure01
 .venv/bin/python -m unittest discover -s tests
 ```
 
-The flags are in Portuguese, because that's how the studio thinks: `entrada` input, `inicio`/`fim` first/last frame, `regiao` region, `excluir` exclude, `receita` recipe, `processos` processes, `saida` output, `forca` strength, `corrigida` corrected, `trecho` range.
+The flags are in Portuguese, because that's how the studio thinks: `entrada` input, `inicio`/`fim` first/last frame, `regiao` region, `excluir` exclude, `receita` recipe, `processos` processes, `saida` output, `forca` strength, `corrigida` corrected, `trecho` range, `execucao` run folder.
+
+## Let it decide
+
+You shouldn't have to judge every shot by eye. `flick decide` reviews its own work: it applies the layers one by one (1, 1+2, 1+2+3, all four), measuring flicker and detail only where the tool acted. A combination is vetoed when it keeps less than 90% of the detail (`--detalhe-min`) or when more than 1% of the 64-pixel tiles gain too much detail, a sign of doubled edges (`--fantasma-max`). Among the rest, it keeps the smallest combination within 2 points of the best one (`--ganho-min`), so a layer that barely helps stays out. Layers are not monotonic: one can do almost nothing and the next one a lot, so all of them are measured before deciding. It writes the chosen delta to `escolha/` and explains the choice in `decisao.json`.
+
+On a 3D render with flickering ice, it kept all four layers: 30% less flicker, 93% of the detail. On a public-domain timelapse ([Growing grass, flicker not removed](https://commons.wikimedia.org/wiki/File:Growing_grass_(flicker_not_removed).ogv)), it kept layers 1 to 3: 55% less flicker with all the detail, against 28% for a plain global-brightness deflicker.
 
 Each delivery command asks for a brand-new folder. The preview is `clip(original + strength × delta, 0, 1)`. Strength zero with the same format copies the original. The delta EXR is signed and uses 16-bit half by default. Use `--precisao float32` to write the sum and the spatial reduction with more precision. Processing runs in float32 and keeps the half rounding of the reference recipe's intermediate writes.
 
